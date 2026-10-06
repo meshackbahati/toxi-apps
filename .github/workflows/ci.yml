@@ -30,6 +30,8 @@ jobs:
             dir: apps/fullstack/blog
           - app: pastebin
             dir: apps/fullstack/pastebin
+          - app: pulse
+            dir: apps/fullstack/pulse
           - app: todo
             dir: apps/api/todo
           - app: notifier

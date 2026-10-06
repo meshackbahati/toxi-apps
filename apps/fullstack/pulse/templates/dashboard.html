@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block content %}
+<article><h1>Request metrics</h1>
+<table><thead><tr><th>Path</th><th>Requests</th><th>OK</th><th>Errors</th><th>ms</th></tr></thead>
+<tbody>{% for row in rows %}<tr><td>{{ row.path }}</td><td>{{ row.requests }}</td><td>{{ row.ok }}</td><td>{{ row.errors }}</td><td>{{ row.ms }}</td></tr>{% endfor %}</tbody></table>
+</article>
+{% endblock %}
