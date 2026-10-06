@@ -46,16 +46,17 @@ curl localhost:3000/openapi.json | head -c 200
 ## Structure
 
 ```
-src/main.rs        # wiring only: state, router, serve
-src/routes/auth.rs # register, login, me (argon + JWT)
-src/routes/tasks.rs# CRUD scoped to the token owner
-src/routes/uploads.rs # 5 MB capped attachments
-src/routes/realtime.rs# long-poll task events
-src/routes/mod.rs  # OpenAPI spec, favicon
-src/models/        # serde types, no logic
-templates/         # HTML with layout inheritance
-public/            # static assets
-migrations/        # 001 users/posts, 002 tasks, 003 password hash
+src/main.rs          # wiring only: config, router, middleware, serve
+src/routes.rs        # route table
+src/controllers/     # thin handlers: web, tasks, auth, uploads, realtime, status, users, docs
+src/services/        # business logic: tasks, auth, uploads
+src/validators/      # input checks
+src/middleware.rs    # logging layer
+src/config.rs        # toxi.toml plus env settings
+src/models/          # serde types, no logic
+templates/           # HTML with layout inheritance
+public/              # static assets
+migrations/          # users, tasks, password hash
 ```
 
 Every file stays under 500 lines. Split by surface when one grows.

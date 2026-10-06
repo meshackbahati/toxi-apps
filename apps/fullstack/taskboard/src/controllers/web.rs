@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::models::User;
 use crate::AppState;
 
-/// GET / — home page with a visit counter.
+/// GET / — home page.
 pub async fn home(mut req: Request) -> Result<Response> {
     let State(state): State<Arc<AppState>> = State::from_request(&mut req).await?;
     let mut ctx = Context::new();

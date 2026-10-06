@@ -1,13 +1,6 @@
-pub mod auth;
-pub mod status;
-pub mod users;
-pub mod realtime;
-pub mod tasks;
-pub mod uploads;
-pub mod web;
+//! Machine-readable API surface: OpenAPI spec plus favicon.
 
-use toxi_core::{Error, Request, Response, Result};
-use http_body_util::BodyExt;
+use toxi::prelude::*;
 
 /// Serve the OpenAPI spec for the taskboard API.
 pub async fn openapi_spec(_req: Request) -> Result<Response> {
@@ -56,6 +49,7 @@ pub async fn openapi_spec(_req: Request) -> Result<Response> {
 
 /// Favicon handler.
 pub async fn favicon(_req: Request) -> Result<Response> {
+    use http_body_util::BodyExt;
     let content =
         std::fs::read("public/images/toxi.svg").map_err(|_| Error::NotFound("icon".to_string()))?;
     let res = http::Response::builder()

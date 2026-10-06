@@ -1,29 +1,36 @@
+//! Taskboard: tasks with auth, uploads, events, rendered pages.
+//!
+//! Boot sequence: Config ──> Router ──> Middleware ──> Server.
+//! See GUIDE.md.
+
 use toxi::auth::JwtManager;
-use toxi::db::{sqlx, DbPool};
+use toxi::db::{sqlx, Database, DbPool};
 use toxi::prelude::*;
 use toxi::realtime::PubSub;
-use toxi_template::TemplateContext;
 use std::sync::Arc;
 
+mod config;
+mod controllers;
+mod middleware;
 mod models;
 mod routes;
+mod services;
+mod validators;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub templates: Arc<TemplateContext>,
+    pub templates: Arc<toxi_template::TemplateContext>,
     pub db: DbPool,
     pub jwt: Arc<JwtManager>,
     pub bus: Arc<PubSub>,
 }
 
 impl AppState {
-    async fn load() -> Result<Self> {
+    async fn load(settings: &config::Settings) -> Result<Self> {
         // Run from the app directory: templates, migrations, uploads,
         // and the database resolve relative to it.
-        let templates = TemplateContext::new("templates");
-        let db_url =
-            std::env::var("TASKBOARD_DB").unwrap_or_else(|_| "sqlite:taskboard.db".to_string());
-        let db = DbPool::connect(&db_url)
+        let templates = toxi_template::TemplateContext::new("templates");
+        let db = DbPool::connect(&settings.db_url)
             .await
             .map_err(|e| Error::InternalServerError(format!("db connect: {e}")))?;
         // Migrations apply once each, tracked in the database, so
@@ -54,12 +61,10 @@ impl AppState {
                 .await
                 .map_err(|e| Error::InternalServerError(format!("migrate: {e}")))?;
         }
-        let secret =
-            std::env::var("TASKBOARD_JWT").unwrap_or_else(|_| "taskboard-dev-secret".to_string());
         Ok(Self {
             templates: Arc::new(templates),
             db,
-            jwt: Arc::new(JwtManager::new(secret)),
+            jwt: Arc::new(JwtManager::new(settings.jwt_secret.clone())),
             bus: Arc::new(PubSub::new()),
         })
     }
@@ -67,41 +72,32 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let state = Arc::new(AppState::load().await?);
-    let mut router = Router::new();
-
-    router.get("/", routes::web::home);
-    router.get("/api/status", routes::status::api_status);
-    router.get("/health", routes::status::health_check);
-    router.get("/users", routes::web::users_page);
-    router.get("/api/users", routes::users::get_users);
-    router.get("/board", routes::web::board);
-    router.get("/api-docs", routes::web::api_docs_page);
-
-    router.post("/auth/register", routes::auth::register);
-    router.post("/auth/login", routes::auth::login);
-    router.get("/auth/me", routes::auth::me);
-
-    router.get("/tasks", routes::tasks::list);
-    router.post("/tasks", routes::tasks::create);
-    router.get("/tasks/:id", routes::tasks::get);
-    router.put("/tasks/:id", routes::tasks::update);
-    router.delete("/tasks/:id", routes::tasks::delete);
-
-    router.post("/uploads", routes::uploads::upload);
-    router.get("/uploads/:name", routes::uploads::download);
-    router.get("/events/next", routes::realtime::next);
-    router.get("/openapi.json", routes::openapi_spec);
-    router.get("/favicon.ico", routes::favicon);
-    // Static assets last: specific routes match first, everything else
-    // falls through to the template engine file server.
-    router.get("/*", toxi_template::serve_static);
+    // ── 1. Config ──────────────────────────────────────────────────
+    let settings = config::load()?;
 
     // Shared state travels in request extensions for State.
-    let mut router = router;
-    router.with_state(state);
-    println!("Taskboard on http://127.0.0.1:3000");
-    Server::new(router).listen("127.0.0.1:3000".parse().unwrap()).await
+    let state = Arc::new(AppState::load(&settings).await?);
+
+    // ── 2. Router ──────────────────────────────────────────────────
+    let mut app = Application::new(
+        toxi::config::Config::load()
+            .map_err(|e| Error::InternalServerError(format!("config: {e}")))?,
+    );
+    routes::register(app.router_mut());
+    app.router_mut().with_state(state);
+
+    // ── 3. Middleware ── 4. Server ─────────────────────────────────
+    println!(
+        "Taskboard on http://{}:{}",
+        app.config().server.host,
+        app.config().server.port
+    );
+    let router = app.into_router();
+    let logged = middleware::Logger::new(router);
+    let addr: std::net::SocketAddr = format!("{}:{}", settings.host, settings.port)
+        .parse()
+        .unwrap();
+    Server::new(logged).listen(addr).await
 }
 
 #[cfg(test)]
@@ -139,15 +135,20 @@ mod boot_tests {
         ] {
             std::fs::copy(format!("{}/{f}", env!("CARGO_MANIFEST_DIR")), f).unwrap();
         }
-        std::env::set_var("TASKBOARD_DB", "sqlite:taskboard-test.db");
-        Arc::new(AppState::load().await.unwrap())
+        let settings = config::Settings {
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+            db_url: "sqlite:taskboard-test.db".to_string(),
+            jwt_secret: "test-secret".to_string(),
+        };
+        Arc::new(AppState::load(&settings).await.unwrap())
     }
 
     #[tokio::test]
     async fn full_flow() {
         let state = test_state().await;
 
-        let res = routes::auth::register(
+        let res = controllers::auth::register(
             json_req(
                 "POST",
                 "/auth/register",
@@ -165,17 +166,17 @@ mod boot_tests {
             br#"{"email":"t@t.c","password":"password1"}"#,
             &state,
         );
-        let res = routes::auth::login(req).await.unwrap();
+        let res = controllers::auth::login(req).await.unwrap();
         assert_eq!(res.status(), http::StatusCode::OK);
 
-        let res = routes::tasks::create(
+        let res = controllers::tasks::create(
             json_req("POST", "/tasks", br#"{"title":"x"}"#, &state),
         )
         .await;
         // No token yet: must be unauthorized.
         assert!(res.is_err());
 
-        let res = routes::openapi_spec(json_req("GET", "/openapi.json", b"", &state))
+        let res = controllers::docs::openapi_spec(json_req("GET", "/openapi.json", b"", &state))
             .await
             .unwrap();
         assert_eq!(res.status(), http::StatusCode::OK);
