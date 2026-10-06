@@ -23,6 +23,7 @@ web framework, plus the framework documentation hub.
 | fullstack | [pastebin](apps/fullstack/pastebin) — sanitized pastes with rendered preview | [GUIDE.md](apps/fullstack/pastebin/GUIDE.md) |
 | fullstack | [blog](apps/fullstack/blog) — rendered posts with auth-gated writing | [GUIDE.md](apps/fullstack/blog/GUIDE.md) |
 | api | [todo](apps/api/todo) — todos over REST plus live GraphQL playground | [GUIDE.md](apps/api/todo/GUIDE.md) |
+| api | [hooks](apps/api/hooks) — in-process plugin pipeline demo | [GUIDE.md](apps/api/hooks/GUIDE.md) |
 | api | [notifier](apps/api/notifier) — queued welcome emails over SMTP | [GUIDE.md](apps/api/notifier/GUIDE.md) |
 | api | [shortlink](apps/api/shortlink) — cache-first redirects, rate limits, stats | [GUIDE.md](apps/api/shortlink/GUIDE.md) |
 | serverless | [echo](apps/serverless/echo) — stateless webhook plus warmth probe | [GUIDE.md](apps/serverless/echo/GUIDE.md) |
