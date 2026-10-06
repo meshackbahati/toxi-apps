@@ -1,3 +1,5 @@
-pub mod catalog;
+pub mod author;
+pub mod book;
 
-pub use catalog::{Author, Book, CreateAuthor, CreateBook};
+pub use author::{Author, CreateAuthor};
+pub use book::{Book, CreateBook};

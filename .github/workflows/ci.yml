@@ -32,6 +32,8 @@ jobs:
             dir: apps/fullstack/pastebin
           - app: pulse
             dir: apps/fullstack/pulse
+          - app: registry
+            dir: apps/api/registry
           - app: todo
             dir: apps/api/todo
           - app: hooks

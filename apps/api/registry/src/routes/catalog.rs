@@ -35,7 +35,7 @@ pub async fn create_author(mut req: Request) -> Result<Response> {
     let State(state): State<Arc<AppState>> = State::from_request(&mut req).await?;
     let body: CreateAuthor = req.json().await?;
     let mut author = Author {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: 0,
         name: body.name,
         email: body.email,
     };
@@ -64,7 +64,7 @@ pub async fn create_book(mut req: Request) -> Result<Response> {
     let State(state): State<Arc<AppState>> = State::from_request(&mut req).await?;
     let body: CreateBook = req.json().await?;
     let mut book = Book {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: 0,
         author_id: body.author_id,
         title: body.title,
     };
@@ -80,9 +80,11 @@ pub async fn create_book(mut req: Request) -> Result<Response> {
 /// GET /authors/:id/books — books for one author, filtered query.
 pub async fn author_books(mut req: Request) -> Result<Response> {
     let State(state): State<Arc<AppState>> = State::from_request(&mut req).await?;
-    let id = id_of(&req);
+    let id: i64 = id_of(&req)
+        .parse()
+        .map_err(|_| Error::NotFound("unknown author".to_string()))?;
     let list = Book::query()
-        .filter_eq("author_id", &id)
+        .filter_eq("author_id", id)
         .fetch_all(&state.db)
         .await
         .map_err(|e| Error::InternalServerError(e.to_string()))?;
