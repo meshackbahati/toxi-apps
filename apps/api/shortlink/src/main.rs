@@ -4,8 +4,13 @@ use toxi::middleware::{RateLimitConfig, RateLimiter};
 use toxi::prelude::*;
 use std::sync::Arc;
 
+mod config;
+mod controllers;
+mod middleware;
 mod models;
 mod routes;
+mod services;
+mod validators;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -15,9 +20,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    async fn load() -> Result<Self> {
-        let db_url =
-            std::env::var("SHORTLINK_DB").unwrap_or_else(|_| "sqlite:shortlink.db".to_string());
+    async fn load(settings: &config::Settings) -> Result<Self> {
+        let db_url = settings.db_url.clone();
         let db = DbPool::connect(&db_url)
             .await
             .map_err(|e| Error::InternalServerError(format!("db connect: {e}")))?;
@@ -37,24 +41,6 @@ impl AppState {
             })),
         })
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let state = Arc::new(AppState::load().await?);
-    let mut router = Router::new();
-
-    router.get("/health", routes::status::health_check);
-    router.get("/api/status", routes::status::api_status);
-    router.post("/links", routes::links::create);
-    router.get("/links", routes::links::list);
-    router.get("/stats", routes::links::stats);
-    router.get("/:code", routes::links::redirect);
-
-    let mut router = router;
-    router.with_state(state);
-    println!("Shortlink on http://127.0.0.1:3001");
-    Server::new(router).listen("127.0.0.1:3001".parse().unwrap()).await
 }
 
 #[cfg(test)]
@@ -88,29 +74,59 @@ mod boot_tests {
         )
         .unwrap();
         std::env::set_var("SHORTLINK_DB", "sqlite:shortlink-test.db");
-        Arc::new(AppState::load().await.unwrap())
+        Arc::new(AppState::load(&config::Settings { host: "127.0.0.1".to_string(), port: 3001, db_url: "sqlite:shortlink-test.db".to_string() }).await.unwrap())
     }
 
     #[tokio::test]
     async fn full_flow() {
         let state = test_state().await;
 
-        let res = routes::links::create(
+        let res = controllers::links::create(
             json_req("POST", "/links", br#"{"url":"https://example.com"}"#, &state),
         )
         .await
         .unwrap();
         assert_eq!(res.status(), http::StatusCode::OK);
 
-        let res = routes::links::create(
+        let res = controllers::links::create(
             json_req("POST", "/links", br#"{"url":"not-a-url"}"#, &state),
         )
         .await;
         assert!(res.is_err());
 
-        let res = routes::links::stats(json_req("GET", "/stats", b"", &state))
+        let res = controllers::links::stats(json_req("GET", "/stats", b"", &state))
             .await
             .unwrap();
         assert_eq!(res.status(), http::StatusCode::OK);
     }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // ── 1. Config ──────────────────────────────────────────────────
+    let settings = config::load()?;
+
+    // Shared state travels in request extensions for State.
+    let state = Arc::new(AppState::load(&settings).await?);
+
+    // ── 2. Router ──────────────────────────────────────────────────
+    let mut app = Application::new(
+        toxi::config::Config::load()
+            .map_err(|e| Error::InternalServerError(format!("config: {e}")))?,
+    );
+    routes::register(app.router_mut());
+    app.router_mut().with_state(state);
+
+    // ── 3. Middleware ── 4. Server ─────────────────────────────────
+    println!(
+        "Shortlink on http://{}:{}",
+        app.config().server.host,
+        app.config().server.port
+    );
+    let router = app.into_router();
+    let logged = middleware::Logger::new(router);
+    let addr: std::net::SocketAddr = format!("{}:{}", settings.host, settings.port)
+        .parse()
+        .unwrap();
+    Server::new(logged).listen(addr).await
 }
